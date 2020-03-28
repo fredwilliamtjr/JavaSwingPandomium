@@ -110,7 +110,7 @@ public class MainApplication {
 //            }
 //        });
 
-        PandomiumBrowser browser = client.loadURL("https://sistema.smartnfe.net/");
+        PandomiumBrowser browser = client.loadURL("http://localhost");
         //PandomiumBrowser browser = client.loadURL("https://mozilla.github.io/pdf.js/web/viewer.html");
         final JFrame frame = new JFrame();
         frame.getContentPane().add(browser.toAWTComponent(), BorderLayout.CENTER);
