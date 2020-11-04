@@ -27,6 +27,8 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.HashMap;
+import java.util.Vector;
 
 import javafx.application.Application;
 import javafx.application.Platform;
@@ -41,10 +43,15 @@ import javafx.stage.WindowEvent;
 import org.apache.commons.lang3.StringUtils;
 import org.cef.CefSettings;
 import org.cef.browser.CefBrowser;
-import org.cef.callback.CefBeforeDownloadCallback;
-import org.cef.callback.CefDownloadItem;
-import org.cef.callback.CefDownloadItemCallback;
+import org.cef.browser.CefFrame;
+import org.cef.callback.*;
 import org.cef.handler.CefDownloadHandler;
+import org.cef.handler.CefLoadHandler;
+import org.cef.handler.CefRequestHandlerAdapter;
+import org.cef.handler.CefResourceHandler;
+import org.cef.misc.BoolRef;
+import org.cef.misc.StringRef;
+import org.cef.network.*;
 import org.panda_lang.pandomium.Pandomium;
 import org.panda_lang.pandomium.settings.PandomiumSettings;
 import org.panda_lang.pandomium.wrapper.PandomiumBrowser;
@@ -110,7 +117,173 @@ public class MainApplication {
 //            }
 //        });
 
-        PandomiumBrowser browser = client.loadURL("http://localhost");
+        client.getCefClient().addRequestHandler(new CefRequestHandlerAdapter() {
+            @Override
+            public boolean onBeforeBrowse(CefBrowser cefBrowser, CefFrame cefFrame, CefRequest cefRequest, boolean b, boolean b1) {
+                CefPostData postData = cefRequest.getPostData();
+                if (postData != null) {
+                    Vector<CefPostDataElement> elements = new Vector<CefPostDataElement>();
+                    postData.getElements(elements);
+                    for (CefPostDataElement el : elements) {
+                        int numBytes = el.getBytesCount();
+                        if (numBytes <= 0)
+                            continue;
+
+                        byte[] readBytes = new byte[numBytes];
+                        if (el.getBytes(numBytes, readBytes) <= 0)
+                            continue;
+
+                        String readString = new String(readBytes);
+                        if (readString.indexOf("ignore") > -1) {
+                            SwingUtilities.invokeLater(new Runnable() {
+                                @Override
+                                public void run() {
+                                    //JOptionPane.showMessageDialog(owner_, "The request was rejected because you've entered \"ignore\" into the form.");
+                                }
+                            });
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }
+
+            @Override
+            public boolean onBeforeResourceLoad(CefBrowser cefBrowser, CefFrame cefFrame, CefRequest request) {
+                // If you send a HTTP-POST request to http://www.google.com/
+                // google rejects your request because they don't allow HTTP-POST.
+                //
+                // This test extracts the value of the test form.
+                // (see "Show Form" entry within BrowserMenuBar)
+                // and sends its value as HTTP-GET request to Google.
+                if (request.getMethod().equalsIgnoreCase("POST") && request.getURL().equals("http://www.google.com/")) {
+                    String forwardTo = "http://www.google.com/#q=";
+                    CefPostData postData = request.getPostData();
+                    boolean sendAsGet = false;
+                    if (postData != null) {
+                        Vector<CefPostDataElement> elements = new Vector<CefPostDataElement>();
+                        postData.getElements(elements);
+                        for (CefPostDataElement el : elements) {
+                            int numBytes = el.getBytesCount();
+                            if (numBytes <= 0)
+                                continue;
+
+                            byte[] readBytes = new byte[numBytes];
+                            if (el.getBytes(numBytes, readBytes) <= 0)
+                                continue;
+
+                            String readString = new String(readBytes).trim();
+                            String[] stringPairs = readString.split("&");
+                            for (String s : stringPairs) {
+                                int startPos = s.indexOf('=');
+                                if (s.startsWith("searchFor"))
+                                    forwardTo += s.substring(startPos + 1);
+                                else if (s.startsWith("sendAsGet")) {
+                                    sendAsGet = true;
+                                }
+                            }
+                        }
+                        if (sendAsGet)
+                            postData.removeElements();
+                    }
+                    if (sendAsGet) {
+                        request.setFlags(0);
+                        request.setMethod("GET");
+                        request.setURL(forwardTo);
+                        request.setFirstPartyForCookies(forwardTo);
+                        HashMap<String, String> headerMap = new HashMap<>();
+                        request.getHeaderMap(headerMap);
+                        headerMap.remove("Content-Type");
+                        headerMap.remove("Origin");
+                        request.setHeaderMap(headerMap);
+                    }
+                }
+                return false;
+            }
+
+            @Override
+            public CefResourceHandler getResourceHandler(CefBrowser cefBrowser, CefFrame cefFrame, CefRequest cefRequest) {
+                // the non existing domain "foo.bar" is handled by the ResourceHandler implementation
+                // E.g. if you try to load the URL http://www.foo.bar, you'll be forwarded
+                // to the ResourceHandler class.
+                if (cefRequest.getURL().endsWith("foo.bar/")) {
+                    return new ResourceHandler();
+                }
+                return null;
+            }
+
+            @Override
+            public void onResourceRedirect(CefBrowser cefBrowser, CefFrame cefFrame, CefRequest cefRequest, CefResponse cefResponse, StringRef stringRef) {
+                super.onResourceRedirect(cefBrowser, cefFrame, cefRequest, cefResponse, stringRef);
+            }
+
+            @Override
+            public boolean onResourceResponse(CefBrowser cefBrowser, CefFrame cefFrame, CefRequest cefRequest, CefResponse cefResponse) {
+                return super.onResourceResponse(cefBrowser, cefFrame, cefRequest, cefResponse);
+            }
+
+            @Override
+            public void onResourceLoadComplete(CefBrowser cefBrowser, CefFrame cefFrame, CefRequest cefRequest, CefResponse cefResponse, CefURLRequest.Status status, long l) {
+                super.onResourceLoadComplete(cefBrowser, cefFrame, cefRequest, cefResponse, status, l);
+            }
+
+            @Override
+            public boolean getAuthCredentials(CefBrowser cefBrowser, CefFrame cefFrame, boolean b, String s, int i, String s1, String s2, CefAuthCallback cefAuthCallback) {
+                return super.getAuthCredentials(cefBrowser, cefFrame, b, s, i, s1, s2, cefAuthCallback);
+            }
+
+            @Override
+            public boolean onQuotaRequest(CefBrowser cefBrowser, String s, long l, CefRequestCallback cefRequestCallback) {
+                return super.onQuotaRequest(cefBrowser, s, l, cefRequestCallback);
+            }
+
+            @Override
+            public void onProtocolExecution(CefBrowser cefBrowser, String s, BoolRef boolRef) {
+                super.onProtocolExecution(cefBrowser, s, boolRef);
+            }
+
+            @Override
+            public boolean onCertificateError(CefBrowser cefBrowser, CefLoadHandler.ErrorCode errorCode, String s, CefRequestCallback cefRequestCallback) {
+                return super.onCertificateError(cefBrowser, errorCode, s, cefRequestCallback);
+            }
+
+            @Override
+            public void onPluginCrashed(CefBrowser cefBrowser, String s) {
+                super.onPluginCrashed(cefBrowser, s);
+            }
+
+            @Override
+            public void onRenderProcessTerminated(CefBrowser cefBrowser, TerminationStatus terminationStatus) {
+                super.onRenderProcessTerminated(cefBrowser, terminationStatus);
+            }
+
+            @Override
+            public int hashCode() {
+                return super.hashCode();
+            }
+
+            @Override
+            public boolean equals(Object obj) {
+                return super.equals(obj);
+            }
+
+            @Override
+            protected Object clone() throws CloneNotSupportedException {
+                return super.clone();
+            }
+
+            @Override
+            public String toString() {
+                return super.toString();
+            }
+
+            @Override
+            protected void finalize() throws Throwable {
+                super.finalize();
+            }
+        });
+
+        PandomiumBrowser browser = client.loadURL("http://foo.bar/");
         //PandomiumBrowser browser = client.loadURL("https://mozilla.github.io/pdf.js/web/viewer.html");
         final JFrame frame = new JFrame();
         frame.getContentPane().add(browser.toAWTComponent(), BorderLayout.CENTER);
